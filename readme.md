@@ -2,6 +2,9 @@
 
 A custom Discord bot designed for student communities of UTB (Tomas Bata University) to streamline the process of identity verification using university email addresses, as well as to manage role assignments via reaction menus.
 
+> Developed by **Vojtěch Birgus** and **Radim Měrka**.
+
+
 ## ✨ Features
 
 - **Email Verification**
