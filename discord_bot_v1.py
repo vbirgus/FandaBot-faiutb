@@ -338,23 +338,113 @@ async def on_ready():
     for guild in bot.guilds:
         channel = guild.get_channel(VERIFICATION_CHANNEL_ID)
         if channel:
-            embed = discord.Embed(
-                title="🎓 Ověření UTB účtu",
-                description=(
-                    "Pro přístup k ostatním kanálům je potřeba ověřit svůj školní e-mail.\n\n"
-                    "➡️ Klikni na tlačítko **Ověřit** níže. "
-                    "Bot ti pošle zprávu do DM, kde zadáš svůj **@utb.cz** e-mail, na který ti následně přijde kód, který botu zadáš.\n\n"
-                    "⚠️ **E-maily učitelů nejsou povoleny.**"
-                ),
-                color=discord.Color.blurple()
-            )
             try:
-                await channel.send(embed=embed, view=VerifyButtonView())
-                print("✅ Zpráva s tlačítkem úspěšně odeslána.")
+                # Najdi poslední zprávu od bota s embedem pro ověření
+                async for msg in channel.history(limit=10):
+                    if msg.author == bot.user and any(isinstance(e, discord.Embed) and "Ověření UTB účtu" in e.title for e in msg.embeds):
+                        await msg.edit(view=VerifyButtonView())
+                        print("✅ View pro ověřovací zprávu znovu připojena.")
+                        break
+                else:
+                    # Pokud nebyla nalezena, vytvoř novou
+                    embed = discord.Embed(
+                        title="🎓 Ověření UTB účtu",
+                        description=(
+                            "Pro přístup k ostatním kanálům je potřeba ověřit svůj školní e-mail.\n\n"
+                            "➡️ Klikni na tlačítko **Ověřit** níže. "
+                            "Bot ti pošle zprávu do DM, kde zadáš svůj **@utb.cz** e-mail, na který ti následně přijde kód, který botu zadáš.\n\n"
+                            "⚠️ **E-maily učitelů nejsou povoleny.**"
+                        ),
+                        color=discord.Color.blurple()
+                    )
+                    await channel.send(embed=embed, view=VerifyButtonView())
+                    print("✅ Nová ověřovací zpráva odeslána.")
             except Exception as e:
-                print(f"❌ Nepodařilo se odeslat zprávu: {e}")
+                print(f"❌ Chyba při obnovování ověřovací zprávy: {e}")
         else:
             print("❌ Kanál s daným ID nebyl nalezen.")
+
+    # === Synchronizace reakcí po restartu bota ===
+    print("🔄 Spouštím synchronizaci reaction rolí...")
+    role_channel_id = int(os.getenv("ROLE_CHANNEL_ID", "0"))
+    if not role_channel_id:
+        print("❌ ROLE_CHANNEL_ID není nastaven.")
+        return
+
+    for guild in bot.guilds:
+        role_channel = guild.get_channel(role_channel_id)
+        if not role_channel:
+            print("❌ Role kanál nenalezen.")
+            continue
+
+        for msg_id, emoji_role_map in reaction_data.items():
+            try:
+                message = await role_channel.fetch_message(int(msg_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+
+            user_reactions = {}
+
+            for reaction in message.reactions:
+                emoji = str(reaction.emoji)
+                if emoji not in emoji_role_map:
+                    continue
+                async for user in reaction.users():
+                    if user.bot:
+                        continue
+                    if user.id not in user_reactions:
+                        user_reactions[user.id] = []
+                    user_reactions[user.id].append(emoji)
+
+            for member in guild.members:
+                # Uživatel má nějakou reakci v této zprávě
+                emojis = user_reactions.get(member.id, [])
+
+                # Najdi všechny role, které se vztahují k této zprávě
+                roles_in_this_menu = [
+                    discord.utils.get(guild.roles, name=role_name)
+                    for role_name in emoji_role_map.values()
+                ]
+
+                # Role, které uživatel má z tohoto menu
+                current_roles = [r for r in roles_in_this_menu if r and r in member.roles]
+
+                # Vybraná emoji (naposledy přidaná, nebo žádná)
+                selected_emoji = emojis[-1] if emojis else None
+                selected_role = (
+                    discord.utils.get(guild.roles, name=emoji_role_map[selected_emoji])
+                    if selected_emoji else None
+                )
+
+                # Odeber všechny ostatní role z tohoto menu
+                to_remove = [r for r in current_roles if r != selected_role]
+                if to_remove:
+                    await member.remove_roles(*to_remove)
+                    print(f"🧹 Odebrány staré role {', '.join(r.name for r in to_remove)} uživateli {member.display_name}")
+
+                # Přidej vybranou roli pokud chybí
+                if selected_role and selected_role not in member.roles:
+                    await member.add_roles(selected_role)
+                    print(f"✅ Přidána role {selected_role.name} uživateli {member.display_name}")
+
+                # Odebrání reakcí, které uživatel nemá mít
+                if selected_emoji:
+                    for emoji in emojis:
+                        if emoji != selected_emoji:
+                            for reaction in message.reactions:
+                                if str(reaction.emoji) == emoji:
+                                    try:
+                                        await reaction.remove(member)
+                                    except discord.HTTPException:
+                                        pass
+
+    print("✅ Synchronizace dokončena.")
+
+
+
+
+       
+
 
 @bot.event
 async def on_message(message):
