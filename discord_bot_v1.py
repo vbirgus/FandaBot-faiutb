@@ -50,6 +50,17 @@ with open(data_file, "r") as f:
     reaction_data = json.load(f)
 #
 
+#code for verified users
+verified_users_file = "verified_users.json"
+
+if not os.path.exists(verified_users_file):
+    with open(verified_users_file, "w") as f:
+        json.dump({}, f)
+
+with open(verified_users_file, "r") as f:
+    verified_users = json.load(f)
+
+
 def send_verification_code(email: str, code: str):
     msg = EmailMessage()
     msg.set_content(f"Toto je tvůj ověřovací kód pro Discord: {code}")
@@ -84,6 +95,10 @@ class VerifyButton(Button):
             await dm_channel.send("👋 Ahoj! Napiš prosím svůj školní e-mail (@utb.cz):")
             email_msg = await bot.wait_for("message", timeout=120, check=check)
             email = email_msg.content.strip().lower()
+            if email in verified_users:
+                await dm_channel.send("❌ Tento e-mail už byl použit k ověření.")
+                return
+
             guild = interaction.guild or discord.utils.get(bot.guilds)
 
             if not email.endswith("@utb.cz"):
@@ -135,6 +150,11 @@ class VerifyButton(Button):
                         await interaction.user.remove_roles(role_impostor)
 
                     await dm_channel.send("✅ Ověření proběhlo úspěšně. Byla ti přidělena role Ověřen.")
+                    # Ulož ověřený email a Discord jméno
+                    verified_users[email] = str(interaction.user)
+                    with open(verified_users_file, "w") as f:
+                        json.dump(verified_users, f, indent=4)
+
                     del pending_verifications[interaction.user.id]
                     return
                 elif entry["attempts"] >= 3:
