@@ -576,6 +576,7 @@ async def on_raw_reaction_add(payload):
 
 
 #radim code for role bot
+@bot.event
 async def on_raw_reaction_remove(payload):
     message_id = str(payload.message_id)
     if message_id in reaction_data:
