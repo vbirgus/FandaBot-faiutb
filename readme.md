@@ -1,79 +1,116 @@
 # UTB Discord Verification & Role Bot
 
-A custom Discord bot designed for student communities of UTB (Tomas Bata University) to streamline the process of identity verification using university email addresses, as well as to manage role assignments via reaction menus.
+A custom Discord bot designed for the student community of UTB (Tomas Bata University) to streamline identity verification using university email addresses and manage role assignments via reaction menus.
 
-> Developed by **Vojtěch Birgus** and **Radim Měrka**.
+> Developed by **Vojtěch Birgus** and **Radim Měrka**
 
+---
 
 ## ✨ Features
 
 - **Email Verification**
   - Verifies users through their `@utb.cz` university email.
   - Sends a 6-digit verification code via email.
-  - Automatically assigns appropriate roles (e.g., "Verified" or "Impostor").
+  - Automatically assigns appropriate roles: `Verified`, `Impostor`, or `Applicant`.
+  - Prevents reuse of the same email address.
+  - Email blacklist support.
 
 - **Reaction Role Menus**
   - Allows users to choose roles by reacting with emojis.
-  - Categories include:
-    - Nationality (`Czech`, `Slovak`)
-    - Type of Study (`Full-time`, `Part-time`)
-    - Field of Study (`ISR`, `PA`)
-    - Year (`1st Year`, ..., `Master 2nd Year`)
-    - Veteran status (`Graduate`, `PhD`)
+  - Role menus supported:
+    - **Nationality** (`Czech`, `Slovak`)
+    - **Type of Study** (`Full-time`, `Part-time`)
+    - **Field of Study** (`ISR`, `PA`)
+    - **Year** (`1st Year`, ..., `Master 2nd Year`)
+    - **Veteran Status** (`Graduate`, `PhD`)
+  - Logic to prevent incompatible role combinations (e.g., `Graduate` cannot have `1st Year`).
 
-- **Applicant Role**
-  - Users can self-identify as applicants (future students) with a button click.
+- **Applicant Role Button**
+  - Users can identify themselves as future students via a button.
+  - Automatically removed upon successful email verification.
+
+- **News Scraper**
+  - Periodically fetches and posts latest news from:
+    - [utb.cz](https://www.utb.cz)
+    - [fai.utb.cz](https://fai.utb.cz)
+  - Posts news links into a designated channel without duplication.
 
 - **Restricted Channel Handling**
-  - Automatically deletes non-file messages in a specific channel and notifies the user.
+  - Deletes non-file messages from a designated channel.
+  - Notifies the user via DM about channel rules.
+
+- **Persistent Data**
+  - Saves verified users to a JSON file.
+  - Caches sent news articles to avoid reposting.
+  - Stores reaction role message-role mapping.
+
+- **Role Reaction Sync on Startup**
+  - Automatically restores reaction role states after bot restart.
+  - Syncs roles with selected emojis and removes invalid or outdated ones.
+
+---
 
 ## 📦 Requirements
 
 - Python 3.8+
-- `discord.py` (with UI support)
+- `discord.py` (with UI components support)
 - `.env` file for environment variables
-- SMTP-compatible email account (tested with seznam.cz)
-- A `reaction_roles.json` file (auto-generated)
+- SMTP-compatible email account (tested with Seznam.cz)
+- `reaction_roles.json` (auto-generated)
+- `verified_users.json` (auto-generated)
+
+---
 
 ## ⚙️ Setup
 
-1. Clone this repository.
+1. **Clone the repository**
 
-2. Create a `.env` file with the following content:
+2. **Create a `.env` file** with the following content:
 
     ```env
     DISCORD_TOKEN=your_discord_bot_token
     EMAIL_ADDRESS=your_email@example.com
     EMAIL_PASSWORD=your_email_password
     VERIFICATION_CHANNEL_ID=your_verification_channel_id
+    NEWS_CHANNEL_ID=your_news_channel_id
+    ROLE_CHANNEL_ID=your_role_channel_id
     RESTRICTED_CHANNEL_NAME=restricted-channel-name
     EMAIL_BLACKLIST=email1@utb.cz,email2@utb.cz
     ```
 
-3. Install dependencies:
+3. **Install dependencies**:
 
     ```bash
     pip install -r requirements.txt
     ```
 
-4. Run the bot:
+4. **Run the bot**:
 
     ```bash
-    python discord_bot_v1.py
+    python discord_bot_v4.py
     ```
 
-## 🛡 Roles Required on Server
+---
 
-Ensure the following roles exist on your Discord server:
+## 🛡 Required Roles on Your Discord Server
 
-- `Verified`
+Make sure the following roles exist on your server:
+
+- `Ověřen` (Verified)
 - `Impostor`
 - `Uchazeč` (Applicant)
-- All roles used in reaction menus (e.g., `Česko`, `ISR`, `Prvák`, etc.)
+- All roles used in reaction menus, such as:
+  - `Česko`, `Slovensko`
+  - `Prezenční`, `Kombinované`
+  - `ISR`, `PA`
+  - `Prvák`, `Druhák`, `Třeťák`, `Ing. Prvák`, `Ing. Druhák`
+  - `Absolvent`, `Doktorand`
+
+---
 
 ## 🛠 Reaction Role Commands
 
-Admins can run these commands to create reaction role menus:
+Admins can run the following commands in Discord to create reaction role menus:
 
 ```text
 !reactionrole_narodnost
