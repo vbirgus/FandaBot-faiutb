@@ -1,13 +1,15 @@
 import os
 import asyncio
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import View, Button
 import smtplib, ssl
 import random, string
 from email.message import EmailMessage
 from dotenv import load_dotenv
 import json
+import requests
+from bs4 import BeautifulSoup
 
 
 # Pro vytvoření Reaction Role Menu použí tyto příkazy:
@@ -25,6 +27,8 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 VERIFICATION_CHANNEL_ID = int(os.getenv("VERIFICATION_CHANNEL_ID", "0"))
 RESTRICTED_CHANNEL_NAME = os.getenv("RESTRICTED_CHANNEL_NAME", "")
+NEWS_CHANNEL_ID = int(os.getenv("NEWS_CHANNEL_ID", "0"))
+role_channel_id = int(os.getenv("ROLE_CHANNEL_ID", "0"))
 
 
 intents = discord.Intents.default()
@@ -59,6 +63,15 @@ if not os.path.exists(verified_users_file):
 
 with open(verified_users_file, "r") as f:
     verified_users = json.load(f)
+
+# === Trvalé uchovávání již poslaných novinek ===
+sent_news_file = "last_posts.json"
+
+if os.path.exists(sent_news_file):
+    with open(sent_news_file, "r") as f:
+        sent_news_links = set(json.load(f))
+else:
+    sent_news_links = set()
 
 
 def send_verification_code(email: str, code: str):
@@ -98,6 +111,7 @@ class VerifyButton(Button):
             if email in verified_users:
                 await dm_channel.send("❌ Tento e-mail už byl použit k ověření.")
                 return
+
 
             guild = interaction.guild or discord.utils.get(bot.guilds)
 
@@ -148,6 +162,12 @@ class VerifyButton(Button):
 
                     if role_impostor and role_impostor in interaction.user.roles:
                         await interaction.user.remove_roles(role_impostor)
+                        
+                    # Odebrat roli Uchazeč, pokud ji má
+                    role_applicant = discord.utils.get(guild.roles, name="Uchazeč")
+                    if role_applicant and role_applicant in interaction.user.roles:
+                        await interaction.user.remove_roles(role_applicant)
+
 
                     await dm_channel.send("✅ Ověření proběhlo úspěšně. Byla ti přidělena role Ověřen.")
                     # Ulož ověřený email a Discord jméno
@@ -175,15 +195,79 @@ class ApplicantButton(Button):
 
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild or discord.utils.get(bot.guilds)
-        role = discord.utils.get(guild.roles, name="Uchazeč")
-        if role:
-            if role in interaction.user.roles:
-                await interaction.response.send_message("Už máš roli Uchazeč.", ephemeral=True)
+        role_uchazec = discord.utils.get(guild.roles, name="Uchazeč")
+        role_overen = discord.utils.get(guild.roles, name="Ověřen")
+
+        if role_overen and role_overen in interaction.user.roles:
+            await interaction.response.send_message("✅ Už jsi ověřený, tedy student. Nemusíš se označovat jako uchazeč.", ephemeral=True)
+            return
+
+        if role_uchazec:
+            if role_uchazec in interaction.user.roles:
+                await interaction.response.send_message("Už máš roli **Uchazeč**.", ephemeral=True)
             else:
-                await interaction.user.add_roles(role)
+                await interaction.user.add_roles(role_uchazec)
                 await interaction.response.send_message("Byla ti přidělena role **Uchazeč**.", ephemeral=True)
         else:
             await interaction.response.send_message("❌ Role 'Uchazeč' nebyla nalezena na serveru.", ephemeral=True)
+
+
+# === Scraper pro UTB ===
+def get_utb_news():
+    url = "https://www.utb.cz/"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, "html.parser")
+    article = soup.find("div", class_="carousel-tile")
+    title = article.find("h3").text.strip()
+    link = article.find("a")["href"]
+    return title, link
+
+# === Scraper pro FAI ===
+def get_fai_news():
+    url = "https://fai.utb.cz/"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, "html.parser")
+    article = soup.find("div", class_="carousel-tile")
+    title = article.find("h3").text.strip()
+    link = article.find("a")["href"]
+    return title, link
+
+# === Periodické kontrolování novinek ===
+@tasks.loop(minutes=30)
+async def check_news():
+    await bot.wait_until_ready()
+
+    channel = bot.get_channel(NEWS_CHANNEL_ID)
+    if channel is None:
+        print("❌ Kanál 'novinky' nebyl nalezen.")
+        return
+
+    new_links_sent = False
+
+    # UTB
+    try:
+        title_utb, link_utb = get_utb_news()
+        if link_utb not in sent_news_links:
+            await channel.send(f"📰 **{title_utb}**\n\nVíce zde: {link_utb}")
+            sent_news_links.add(link_utb)
+            new_links_sent = True
+    except Exception as e:
+        print(f"Chyba při získávání UTB novinek: {e}")
+
+    # FAI
+    try:
+        title_fai, link_fai = get_fai_news()
+        if link_fai not in sent_news_links:
+            await channel.send(f"📰 **{title_fai}**\n\nVíce zde: {link_fai}")
+            sent_news_links.add(link_fai)
+            new_links_sent = True
+    except Exception as e:
+        print(f"Chyba při získávání FAI novinek: {e}")
+
+    # Uložení pouze pokud byly poslány nové linky
+    if new_links_sent:
+        with open(sent_news_file, "w") as f:
+            json.dump(list(sent_news_links), f, indent=4)
 
 # === Reaction Role Menu pro národnost ===
 @bot.command(name="reactionrole_narodnost")
@@ -355,6 +439,7 @@ async def reactionrole(ctx):
 @bot.event
 async def on_ready():
     print(f"Přihlášen jako {bot.user}")
+    check_news.start()
     for guild in bot.guilds:
         channel = guild.get_channel(VERIFICATION_CHANNEL_ID)
         if channel:
@@ -386,7 +471,6 @@ async def on_ready():
 
     # === Synchronizace reakcí po restartu bota ===
     print("🔄 Spouštím synchronizaci reaction rolí...")
-    role_channel_id = int(os.getenv("ROLE_CHANNEL_ID", "0"))
     if not role_channel_id:
         print("❌ ROLE_CHANNEL_ID není nastaven.")
         return
